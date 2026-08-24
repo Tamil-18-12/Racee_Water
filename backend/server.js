@@ -81,18 +81,21 @@ const startServer = async () => {
     await connectDB();
     await initializeData();
 
-    app.listen(PORT, () => {
-      console.log(`====================================================`);
-      console.log(`🚀 Water Can Delivery Backend Server`);
-      console.log(`📡 Listening on: http://localhost:${PORT}`);
-      console.log(`🛡️  Auth: JWT Enabled`);
-      console.log(`🍃 Database: MongoDB`);
-      console.log(`====================================================`);
-    });
+    if (!process.env.VERCEL) {
+      app.listen(PORT, () => {
+        console.log(`====================================================`);
+        console.log(`🚀 Water Can Delivery Backend Server`);
+        console.log(`📡 Listening on: http://localhost:${PORT}`);
+        console.log(`🛡️  Auth: JWT Enabled`);
+        console.log(`🍃 Database: MongoDB`);
+        console.log(`====================================================`);
+      });
+    }
   } catch (err) {
     console.error('❌ Failed to start server:', err.message);
-    process.exit(1);
   }
 };
 
 startServer();
+
+export default app;
