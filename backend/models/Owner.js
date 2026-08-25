@@ -1,7 +1,5 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
-import { isUsingLocalDB } from '../config/db.js';
-import { createLocalModel } from '../config/localStore.js';
 
 const ownerSchema = new mongoose.Schema(
   {
@@ -47,16 +45,6 @@ ownerSchema.methods.comparePassword = async function (candidatePassword) {
   return bcrypt.compare(candidatePassword, this.passwordHash);
 };
 
-const MongooseOwner = mongoose.model('Owner', ownerSchema);
-const localOwner = createLocalModel('owners');
-
-const OwnerModel = new Proxy(MongooseOwner, {
-  get(target, prop) {
-    if (isUsingLocalDB && prop in localOwner) {
-      return localOwner[prop];
-    }
-    return target[prop];
-  },
-});
+const OwnerModel = mongoose.model('Owner', ownerSchema);
 
 export default OwnerModel;

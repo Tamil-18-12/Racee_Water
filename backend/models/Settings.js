@@ -1,6 +1,4 @@
 import mongoose from 'mongoose';
-import { isUsingLocalDB } from '../config/db.js';
-import { createLocalModel } from '../config/localStore.js';
 
 const settingsSchema = new mongoose.Schema(
   {
@@ -45,16 +43,6 @@ const settingsSchema = new mongoose.Schema(
   }
 );
 
-const MongooseSettings = mongoose.model('Settings', settingsSchema);
-const localSettings = createLocalModel('settings');
-
-const SettingsModel = new Proxy(MongooseSettings, {
-  get(target, prop) {
-    if (isUsingLocalDB && prop in localSettings) {
-      return localSettings[prop];
-    }
-    return target[prop];
-  },
-});
+const SettingsModel = mongoose.model('Settings', settingsSchema);
 
 export default SettingsModel;

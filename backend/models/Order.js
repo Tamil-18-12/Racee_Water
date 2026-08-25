@@ -1,6 +1,4 @@
 import mongoose from 'mongoose';
-import { isUsingLocalDB } from '../config/db.js';
-import { createLocalModel } from '../config/localStore.js';
 
 const orderSchema = new mongoose.Schema(
   {
@@ -115,16 +113,6 @@ const orderSchema = new mongoose.Schema(
 orderSchema.index({ customerId: 1, createdAt: -1 });
 orderSchema.index({ createdAt: -1 });
 
-const MongooseOrder = mongoose.model('Order', orderSchema);
-const localOrder = createLocalModel('orders');
-
-const OrderModel = new Proxy(MongooseOrder, {
-  get(target, prop) {
-    if (isUsingLocalDB && prop in localOrder) {
-      return localOrder[prop];
-    }
-    return target[prop];
-  },
-});
+const OrderModel = mongoose.model('Order', orderSchema);
 
 export default OrderModel;

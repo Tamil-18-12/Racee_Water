@@ -2,43 +2,45 @@ import bcrypt from 'bcryptjs';
 import Owner from '../models/Owner.js';
 import Settings from '../models/Settings.js';
 
+const INITIAL_OWNER_ID = 'owner001';
+const INITIAL_PASSWORD = 'Admin@123';
+const INITIAL_PRICE_PER_CAN = 20.0;
+const INITIAL_BUSINESS_NAME = 'Racee Water';
+const INITIAL_PHONE = '9345038836';
+const INITIAL_ADDRESS = 'Laligam bus stop, laligam, Dharmapuri 636804';
+
 export const initializeData = async () => {
   try {
-    const defaultOwnerId = process.env.OWNER_ID || 'owner001';
-    const defaultPassword = process.env.OWNER_PASSWORD || 'Admin@123';
-    const defaultPricePerCan = Number(process.env.DEFAULT_PRICE_PER_CAN) || 20.0;
-    const defaultBusinessName = process.env.DEFAULT_BUSINESS_NAME || 'Racee Water';
-    const defaultPhone = process.env.DEFAULT_PHONE || '9345038836';
-    const defaultAddress = process.env.DEFAULT_ADDRESS || 'Laligam bus stop, laligam, Dharmapuri 636804';
-
-    // Seed default owner
-    const existingOwner = await Owner.findOne({ ownerId: defaultOwnerId });
+    // Seed default owner if no owner exists in MongoDB
+    const existingOwner = await Owner.findOne();
     if (!existingOwner) {
       const salt = await bcrypt.genSalt(10);
-      const passwordHash = await bcrypt.hash(defaultPassword, salt);
+      const passwordHash = await bcrypt.hash(INITIAL_PASSWORD, salt);
 
       await Owner.create({
-        ownerId: defaultOwnerId,
+        ownerId: INITIAL_OWNER_ID,
         passwordHash,
         name: 'Owner Admin',
-        mobile: defaultPhone,
+        mobile: INITIAL_PHONE,
         role: 'ROLE_OWNER',
       });
-      console.log(`✅ Default owner created: ${defaultOwnerId} (Password: ${defaultPassword})`);
+      console.log(`✅ MongoDB initialized with default owner: ${INITIAL_OWNER_ID}`);
     }
 
-    // Seed default settings
+    // Seed default settings if no settings exist in MongoDB
     const existingSettings = await Settings.findOne();
     if (!existingSettings) {
       await Settings.create({
-        pricePerCan: defaultPricePerCan,
-        businessName: defaultBusinessName,
-        phoneNumber: defaultPhone,
-        address: defaultAddress,
+        pricePerCan: INITIAL_PRICE_PER_CAN,
+        businessName: INITIAL_BUSINESS_NAME,
+        phoneNumber: INITIAL_PHONE,
+        address: INITIAL_ADDRESS,
+        totalCansCount: 50,
       });
-      console.log(`✅ Default settings created with price ₹${defaultPricePerCan} per can`);
+      console.log(`✅ MongoDB initialized with default settings: ₹${INITIAL_PRICE_PER_CAN}/can`);
     }
   } catch (err) {
     console.error('⚠️ Warning in database initialization:', err.message);
   }
 };
+

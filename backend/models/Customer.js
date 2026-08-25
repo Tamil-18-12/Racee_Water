@@ -1,6 +1,4 @@
 import mongoose from 'mongoose';
-import { isUsingLocalDB } from '../config/db.js';
-import { createLocalModel } from '../config/localStore.js';
 
 const customerSchema = new mongoose.Schema(
   {
@@ -69,16 +67,6 @@ const customerSchema = new mongoose.Schema(
 
 customerSchema.index({ name: 'text', mobile: 'text' });
 
-const MongooseCustomer = mongoose.model('Customer', customerSchema);
-const localCustomer = createLocalModel('customers');
-
-const CustomerModel = new Proxy(MongooseCustomer, {
-  get(target, prop) {
-    if (isUsingLocalDB && prop in localCustomer) {
-      return localCustomer[prop];
-    }
-    return target[prop];
-  },
-});
+const CustomerModel = mongoose.model('Customer', customerSchema);
 
 export default CustomerModel;

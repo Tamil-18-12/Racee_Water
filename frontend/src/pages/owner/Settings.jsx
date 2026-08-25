@@ -4,7 +4,16 @@ import LoadingSpinner from '../../components/LoadingSpinner';
 
 const Settings = () => {
   const [settings, setSettings] = useState(null);
-  const [form, setForm] = useState({ pricePerCan: '', businessName: '', phoneNumber: '', address: '', totalCansCount: '50' });
+  const [form, setForm] = useState({
+    pricePerCan: '',
+    businessName: '',
+    phoneNumber: '',
+    address: '',
+    totalCansCount: '50',
+    newOwnerId: '',
+    currentPassword: '',
+    newPassword: '',
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [alert, setAlert] = useState(null);
@@ -19,13 +28,15 @@ const Settings = () => {
       .then(res => {
         const s = res.data.data;
         setSettings(s);
-        setForm({
+        setForm(f => ({
+          ...f,
           pricePerCan: s.pricePerCan,
           businessName: s.businessName,
           phoneNumber: s.phoneNumber,
           address: s.address,
           totalCansCount: s.totalCansCount || 50,
-        });
+          newOwnerId: s.ownerId || 'owner001',
+        }));
       })
       .catch(() => showAlert('Failed to load settings', 'danger'))
       .finally(() => setLoading(false));
@@ -41,15 +52,37 @@ const Settings = () => {
       showAlert('Total number of cans must be at least 1', 'danger');
       return;
     }
+    if (form.newPassword && !form.currentPassword) {
+      showAlert('Please enter your current password to set a new password', 'danger');
+      return;
+    }
+
     setSaving(true);
     try {
-      const res = await updateSettings({
-        ...form,
+      const payload = {
         pricePerCan: parseFloat(form.pricePerCan),
+        businessName: form.businessName,
+        phoneNumber: form.phoneNumber,
+        address: form.address,
         totalCansCount: parseInt(form.totalCansCount),
-      });
-      setSettings(res.data.data);
-      showAlert('Settings saved successfully! Total can range updated.');
+      };
+
+      if (form.newOwnerId) payload.newOwnerId = form.newOwnerId;
+      if (form.newPassword) {
+        payload.currentPassword = form.currentPassword;
+        payload.newPassword = form.newPassword;
+      }
+
+      const res = await updateSettings(payload);
+      const updatedData = res.data.data;
+      setSettings(updatedData);
+      setForm(f => ({
+        ...f,
+        currentPassword: '',
+        newPassword: '',
+        newOwnerId: updatedData.ownerId || f.newOwnerId,
+      }));
+      showAlert(res.data.message || 'Settings saved successfully!');
     } catch (e) {
       showAlert(e.response?.data?.message || 'Failed to save settings', 'danger');
     } finally { setSaving(false); }
@@ -163,6 +196,35 @@ const Settings = () => {
               </div>
             </div>
 
+            {/* Account Credentials */}
+            <div className="settings-card">
+              <div className="settings-section-title">🔑 Account & Login Credentials (MongoDB)</div>
+
+              <div className="mb-3">
+                <label className="form-label">Owner ID / Username</label>
+                <input type="text" className="form-control" value={form.newOwnerId}
+                  onChange={e => setForm(f => ({ ...f, newOwnerId: e.target.value }))} />
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                  Used to sign into the Owner Dashboard.
+                </div>
+              </div>
+
+              <hr />
+
+              <div className="settings-section-title" style={{ fontSize: '0.95rem' }}>🔐 Change Password</div>
+              <div className="mb-3">
+                <label className="form-label">Current Password</label>
+                <input type="password" className="form-control" placeholder="Enter current password to change" value={form.currentPassword}
+                  onChange={e => setForm(f => ({ ...f, currentPassword: e.target.value }))} />
+              </div>
+
+              <div className="mb-3">
+                <label className="form-label">New Password</label>
+                <input type="password" className="form-control" placeholder="Leave blank to keep unchanged" value={form.newPassword}
+                  onChange={e => setForm(f => ({ ...f, newPassword: e.target.value }))} />
+              </div>
+            </div>
+
             <button type="submit" className="btn-primary-wc" disabled={saving}>
               {saving ? '⏳ Saving...' : '💾 Save Settings'}
             </button>
@@ -175,6 +237,7 @@ const Settings = () => {
             {settings && (
               <div>
                 {[
+                  ['👤 Owner ID', settings.ownerId || 'owner001'],
                   ['🛢️ Total Cans Sequence', `1 to ${settings.totalCansCount || 50} (${settings.totalCansCount || 50} Cans)`],
                   ['💰 Price Per Can', `₹${settings.pricePerCan}`],
                   ['🏢 Business Name', settings.businessName],
@@ -192,12 +255,12 @@ const Settings = () => {
           </div>
 
           <div className="settings-card">
-            <div className="settings-section-title">🔒 Security</div>
+            <div className="settings-section-title">🔒 Security & Database</div>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-              Owner passwords are stored using BCrypt hashing. Default credentials can be changed by updating the application configuration.
+              All configuration, prices, contact information, and owner credentials are standard documents stored securely inside MongoDB Atlas.
             </p>
             <div className="p-3" style={{ background: '#f0fff4', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', color: '#065f46' }}>
-              ✅ JWT authentication active — sessions expire in 24 hours
+              ✅ MongoDB Atlas connected — Settings & Account credentials stored in DB
             </div>
           </div>
         </div>
@@ -207,3 +270,4 @@ const Settings = () => {
 };
 
 export default Settings;
+
