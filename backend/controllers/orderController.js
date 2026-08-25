@@ -25,9 +25,67 @@ const findOrderByIdOrCustomId = async (id) => {
   return order;
 };
 
+const getBlockedCansMap = async () => {
+  const settings = await Settings.findOne();
+  const totalCansCount = settings?.totalCansCount || 50;
+
+  const activeOrders = await Order.find({
+    emptyCansPending: { $gt: 0 },
+    orderStatus: { $ne: 'CANCELLED' },
+  });
+
+  const blockedMap = {};
+  for (const order of activeOrders) {
+    const assigned = Array.isArray(order.canNumbers) ? order.canNumbers : [];
+    const returned = Array.isArray(order.returnedCanNumbers) ? order.returnedCanNumbers : [];
+    const returnedSet = new Set(returned.map(Number));
+
+    for (const num of assigned) {
+      const canNum = Number(num);
+      if (canNum > 0 && !returnedSet.has(canNum)) {
+        blockedMap[canNum] = {
+          orderId: order.orderId,
+          customerName: order.customerName,
+          mobile: order.mobile,
+          customerId: order.customerId ? order.customerId.toString() : null,
+          deliveredAt: order.createdAt,
+        };
+      }
+    }
+  }
+
+  return { totalCansCount, blockedMap };
+};
+
+export const getCanStatus = async (req, res, next) => {
+  try {
+    const { totalCansCount, blockedMap } = await getBlockedCansMap();
+    const blockedNumbers = Object.keys(blockedMap).map(Number).sort((a, b) => a - b);
+    const availableNumbers = [];
+    for (let i = 1; i <= totalCansCount; i++) {
+      if (!blockedMap[i]) availableNumbers.push(i);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Success',
+      data: {
+        totalCansCount,
+        blockedMap,
+        blockedNumbers,
+        availableNumbers,
+        blockedCount: blockedNumbers.length,
+        availableCount: availableNumbers.length,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const createPublicOrder = async (req, res, next) => {
   try {
-    const { customerName, mobile, address, numberOfCans, notes } = req.body;
+    const { customerName, mobile, address, numberOfCans, notes, canNumbers } = req.body;
 
     if (!customerName || !mobile) {
       return res.status(400).json({
@@ -45,6 +103,24 @@ export const createPublicOrder = async (req, res, next) => {
         data: null,
       });
     }
+
+    const { totalCansCount, blockedMap } = await getBlockedCansMap();
+    let assignedCanNumbers = [];
+
+    if (Array.isArray(canNumbers) && canNumbers.length > 0) {
+      assignedCanNumbers = canNumbers.map(Number).filter((n) => !isNaN(n) && n >= 1);
+      for (const canNum of assignedCanNumbers) {
+        if (blockedMap[canNum]) {
+          const info = blockedMap[canNum];
+          return res.status(400).json({
+            success: false,
+            message: `Can #${canNum} is currently out on delivery with ${info.customerName} (Order #${info.orderId}). Please choose an available can.`,
+            data: null,
+          });
+        }
+      }
+    }
+    // Online customer bookings keep canNumbers empty until owner assigns them on delivery
 
     // Find or create customer
     let customer = await Customer.findOne({ mobile: mobile.trim() });
@@ -77,6 +153,8 @@ export const createPublicOrder = async (req, res, next) => {
       emptyCansDelivered,
       emptyCansReturned,
       emptyCansPending,
+      canNumbers: assignedCanNumbers,
+      returnedCanNumbers: [],
       orderSource: 'ONLINE',
       orderStatus: 'PENDING',
       paymentStatus: 'PENDING',
@@ -97,7 +175,7 @@ export const createPublicOrder = async (req, res, next) => {
 export const createOrderForCustomer = async (req, res, next) => {
   try {
     const { customerId } = req.params;
-    const { numberOfCans, amountPaid, paymentMode, emptyCansReturned, orderSource, orderStatus, notes } = req.body;
+    const { numberOfCans, amountPaid, paymentMode, emptyCansReturned, orderSource, orderStatus, notes, canNumbers } = req.body;
 
     const customer = await Customer.findById(customerId);
     if (!customer) {
@@ -117,6 +195,36 @@ export const createOrderForCustomer = async (req, res, next) => {
       });
     }
 
+    const { totalCansCount, blockedMap } = await getBlockedCansMap();
+    let assignedCanNumbers = [];
+
+    if (Array.isArray(canNumbers) && canNumbers.length > 0) {
+      assignedCanNumbers = canNumbers.map(Number).filter((n) => !isNaN(n) && n >= 1);
+      if (assignedCanNumbers.length !== cans) {
+        return res.status(400).json({
+          success: false,
+          message: `Please select/enter exactly ${cans} can number(s). Currently selected: ${assignedCanNumbers.length}`,
+          data: null,
+        });
+      }
+      for (const canNum of assignedCanNumbers) {
+        if (blockedMap[canNum]) {
+          const info = blockedMap[canNum];
+          return res.status(400).json({
+            success: false,
+            message: `Can #${canNum} is currently out on delivery with ${info.customerName} (Order #${info.orderId}). Please choose an available can.`,
+            data: null,
+          });
+        }
+      }
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: `Please select or enter the ${cans} specific can number(s) for delivery.`,
+        data: null,
+      });
+    }
+
     const pricePerCan = await getPricePerCan();
     const totalAmount = cans * pricePerCan;
     const paid = Math.max(0, Math.min(Number(amountPaid) || 0, totalAmount));
@@ -125,6 +233,11 @@ export const createOrderForCustomer = async (req, res, next) => {
     const deliveredCans = cans;
     const returnedCans = Math.max(0, Math.min(parseInt(emptyCansReturned, 10) || 0, deliveredCans));
     const pendingCans = deliveredCans - returnedCans;
+
+    let initialReturnedCanNumbers = [];
+    if (returnedCans > 0 && assignedCanNumbers.length > 0) {
+      initialReturnedCanNumbers = assignedCanNumbers.slice(0, returnedCans);
+    }
 
     const paymentStatus = determinePaymentStatus(paid, totalAmount);
     const resolvedPaymentMode = paid > 0 ? (paymentMode || 'CASH') : 'PENDING';
@@ -142,6 +255,8 @@ export const createOrderForCustomer = async (req, res, next) => {
       emptyCansDelivered: deliveredCans,
       emptyCansReturned: returnedCans,
       emptyCansPending: pendingCans,
+      canNumbers: assignedCanNumbers,
+      returnedCanNumbers: initialReturnedCanNumbers,
       orderSource: orderSource || 'OFFLINE',
       orderStatus: orderStatus || 'PENDING',
       paymentStatus,
@@ -297,16 +412,7 @@ export const addPayment = async (req, res, next) => {
 export const addEmptyCanReturn = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { returnedCans } = req.body || {};
-
-    const cans = parseInt(returnedCans, 10);
-    if (isNaN(cans) || cans < 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Returned cans must be a positive number.',
-        data: null,
-      });
-    }
+    const { returnedCans, returnedCanNumbers } = req.body || {};
 
     const order = await findOrderByIdOrCustomId(id);
     if (!order) {
@@ -317,17 +423,50 @@ export const addEmptyCanReturn = async (req, res, next) => {
       });
     }
 
-    const newReturned = order.emptyCansReturned + cans;
-    if (newReturned > order.emptyCansDelivered) {
-      return res.status(400).json({
-        success: false,
-        message: `Returned cans (${newReturned}) cannot exceed delivered cans (${order.emptyCansDelivered}).`,
-        data: null,
-      });
+    const assigned = Array.isArray(order.canNumbers) ? order.canNumbers.map(Number) : [];
+    const currentReturned = Array.isArray(order.returnedCanNumbers) ? order.returnedCanNumbers.map(Number) : [];
+    const returnedSet = new Set(currentReturned);
+
+    if (Array.isArray(returnedCanNumbers) && returnedCanNumbers.length > 0) {
+      const newNums = returnedCanNumbers.map(Number).filter((n) => !isNaN(n));
+      for (const num of newNums) {
+        if (assigned.length === 0 || assigned.includes(num)) {
+          returnedSet.add(num);
+        }
+      }
+      order.returnedCanNumbers = Array.from(returnedSet).sort((a, b) => a - b);
+      order.emptyCansReturned = order.returnedCanNumbers.length;
+      order.emptyCansPending = Math.max(0, order.emptyCansDelivered - order.emptyCansReturned);
+    } else {
+      const cans = parseInt(returnedCans, 10);
+      if (isNaN(cans) || cans <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Returned cans must be a positive number.',
+          data: null,
+        });
+      }
+
+      const unreturned = assigned.filter((n) => !returnedSet.has(n));
+      if (unreturned.length > 0) {
+        const newlyReturned = unreturned.slice(0, cans);
+        newlyReturned.forEach((n) => returnedSet.add(n));
+        order.returnedCanNumbers = Array.from(returnedSet).sort((a, b) => a - b);
+      }
+
+      const newReturnedCount = order.emptyCansReturned + cans;
+      if (newReturnedCount > order.emptyCansDelivered) {
+        return res.status(400).json({
+          success: false,
+          message: `Returned cans (${newReturnedCount}) cannot exceed delivered cans (${order.emptyCansDelivered}).`,
+          data: null,
+        });
+      }
+
+      order.emptyCansReturned = newReturnedCount;
+      order.emptyCansPending = order.emptyCansDelivered - newReturnedCount;
     }
 
-    order.emptyCansReturned = newReturned;
-    order.emptyCansPending = order.emptyCansDelivered - newReturned;
     await order.save();
 
     res.status(200).json({
@@ -343,10 +482,11 @@ export const addEmptyCanReturn = async (req, res, next) => {
 export const updateStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const status = req.body?.status || req.query?.status;
+    const { status, canNumbers } = req.body || {};
+    const targetStatus = status || req.query?.status;
 
     const validStatuses = ['PENDING', 'CONFIRMED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'];
-    if (!status || !validStatuses.includes(status)) {
+    if (!targetStatus || !validStatuses.includes(targetStatus)) {
       return res.status(400).json({
         success: false,
         message: `Invalid order status. Must be one of: ${validStatuses.join(', ')}`,
@@ -363,7 +503,24 @@ export const updateStatus = async (req, res, next) => {
       });
     }
 
-    order.orderStatus = status;
+    if (Array.isArray(canNumbers) && canNumbers.length > 0) {
+      const { blockedMap } = await getBlockedCansMap();
+      const parsedNums = canNumbers.map(Number).filter((n) => !isNaN(n) && n >= 1);
+
+      for (const canNum of parsedNums) {
+        if (blockedMap[canNum] && String(blockedMap[canNum].orderId) !== String(order.orderId)) {
+          const info = blockedMap[canNum];
+          return res.status(400).json({
+            success: false,
+            message: `Can #${canNum} is currently out on delivery with ${info.customerName} (Order #${info.orderId}). Please choose an available can.`,
+            data: null,
+          });
+        }
+      }
+      order.canNumbers = parsedNums;
+    }
+
+    order.orderStatus = targetStatus;
     await order.save();
 
     res.status(200).json({

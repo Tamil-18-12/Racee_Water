@@ -8,7 +8,11 @@ const getOrCreateSettings = async () => {
       businessName: process.env.DEFAULT_BUSINESS_NAME || 'Racee Water',
       phoneNumber: process.env.DEFAULT_PHONE || '9345038836',
       address: process.env.DEFAULT_ADDRESS || 'Laligam bus stop, laligam, Dharmapuri 636804',
+      totalCansCount: Number(process.env.DEFAULT_TOTAL_CANS) || 50,
     });
+  }
+  if (!settings.totalCansCount) {
+    settings.totalCansCount = 50;
   }
   return settings;
 };
@@ -41,7 +45,7 @@ export const getSettings = async (req, res, next) => {
 
 export const updateSettings = async (req, res, next) => {
   try {
-    const { pricePerCan, businessName, phoneNumber, address } = req.body;
+    const { pricePerCan, businessName, phoneNumber, address, totalCansCount } = req.body;
     const settings = await getOrCreateSettings();
 
     if (pricePerCan !== undefined && Number(pricePerCan) > 0) {
@@ -55,6 +59,9 @@ export const updateSettings = async (req, res, next) => {
     }
     if (address !== undefined && address.trim() !== '') {
       settings.address = address.trim();
+    }
+    if (totalCansCount !== undefined && Number(totalCansCount) > 0) {
+      settings.totalCansCount = Number(totalCansCount);
     }
 
     await settings.save();

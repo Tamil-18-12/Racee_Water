@@ -74,10 +74,26 @@ const matchesQuery = (item, query = {}) => {
 
     if (value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
       if (value.$ne !== undefined && String(item[key]) === String(value.$ne)) return false;
-      if (value.$gte !== undefined && new Date(item[key]) < new Date(value.$gte)) return false;
-      if (value.$lte !== undefined && new Date(item[key]) > new Date(value.$lte)) return false;
-      if (value.$gt !== undefined && new Date(item[key]) <= new Date(value.$gt)) return false;
-      if (value.$lt !== undefined && new Date(item[key]) >= new Date(value.$lt)) return false;
+      if (value.$gte !== undefined) {
+        const valA = typeof item[key] === 'number' ? item[key] : new Date(item[key]);
+        const valB = typeof value.$gte === 'number' ? value.$gte : new Date(value.$gte);
+        if (valA < valB) return false;
+      }
+      if (value.$lte !== undefined) {
+        const valA = typeof item[key] === 'number' ? item[key] : new Date(item[key]);
+        const valB = typeof value.$lte === 'number' ? value.$lte : new Date(value.$lte);
+        if (valA > valB) return false;
+      }
+      if (value.$gt !== undefined) {
+        const valA = typeof item[key] === 'number' ? item[key] : new Date(item[key]);
+        const valB = typeof value.$gt === 'number' ? value.$gt : new Date(value.$gt);
+        if (valA <= valB) return false;
+      }
+      if (value.$lt !== undefined) {
+        const valA = typeof item[key] === 'number' ? item[key] : new Date(item[key]);
+        const valB = typeof value.$lt === 'number' ? value.$lt : new Date(value.$lt);
+        if (valA >= valB) return false;
+      }
       continue;
     }
 

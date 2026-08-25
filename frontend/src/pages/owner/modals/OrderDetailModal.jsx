@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import StatusBadge from '../../../components/StatusBadge';
+import AssignCansModal from './AssignCansModal';
 import { FaPhoneAlt, FaWhatsapp, FaUser, FaMoneyBillWave, FaRecycle, FaWater, FaCalendarAlt, FaMapMarkerAlt, FaTag, FaCheckCircle, FaTrash, FaCheck } from 'react-icons/fa';
 
 const fmtDate = (d) => {
@@ -16,9 +17,6 @@ const fmtDate = (d) => {
 };
 
 const STATUS_OPTIONS = [
-  { value: 'PENDING', label: '⏳ Pending', color: '#f59e0b', bg: '#fef3c7' },
-  { value: 'CONFIRMED', label: '👍 Confirmed', color: '#3b82f6', bg: '#dbeafe' },
-  { value: 'OUT_FOR_DELIVERY', label: '🚚 Out for Delivery', color: '#8b5cf6', bg: '#ede9fe' },
   { value: 'DELIVERED', label: '✅ Delivered', color: '#10b981', bg: '#d1fae5' },
   { value: 'CANCELLED', label: '❌ Cancelled', color: '#ef4444', bg: '#fee2e2' },
 ];
@@ -33,11 +31,20 @@ const OrderDetailModal = ({
 }) => {
   const navigate = useNavigate();
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [assignCansTargetStatus, setAssignCansTargetStatus] = useState(null);
 
   if (!order) return null;
 
   const handleStatusSelect = async (newStatus) => {
     if (newStatus === order.orderStatus) return;
+    if (
+      (newStatus === 'OUT_FOR_DELIVERY' || newStatus === 'DELIVERED') &&
+      (!order.canNumbers || order.canNumbers.length === 0)
+    ) {
+      setAssignCansTargetStatus(newStatus);
+      return;
+    }
+
     setUpdatingStatus(true);
     try {
       if (onStatusChange) {
@@ -429,6 +436,36 @@ const OrderDetailModal = ({
               </div>
             </div>
 
+            {/* Numbered Cans Assigned Badges */}
+            {Array.isArray(order.canNumbers) && order.canNumbers.length > 0 && (
+              <div className="mb-3 p-2" style={{ background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <small style={{ color: 'var(--text-muted)', fontSize: '0.78rem', display: 'block', marginBottom: '4px' }}>
+                  🛢️ Assigned Can Numbers:
+                </small>
+                <div className="d-flex flex-wrap gap-1">
+                  {order.canNumbers.map((num) => {
+                    const isReturned = Array.isArray(order.returnedCanNumbers) && order.returnedCanNumbers.includes(num);
+                    return (
+                      <span
+                        key={num}
+                        style={{
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          padding: '0.2rem 0.5rem',
+                          borderRadius: '4px',
+                          background: isReturned ? '#dcfce7' : '#fee2e2',
+                          color: isReturned ? '#166534' : '#991b1b',
+                          border: isReturned ? '1px solid #86efac' : '1px solid #fca5a5',
+                        }}
+                      >
+                        {isReturned ? `✅ Can #${num}` : `🔒 Can #${num} (Out)`}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <button
               type="button"
               className="btn-wc btn-wc-warning w-100"
@@ -501,6 +538,19 @@ const OrderDetailModal = ({
           </button>
         </div>
       </div>
+
+      {assignCansTargetStatus && (
+        <AssignCansModal
+          order={order}
+          targetStatus={assignCansTargetStatus}
+          onClose={() => setAssignCansTargetStatus(null)}
+          onSuccess={() => {
+            setAssignCansTargetStatus(null);
+            onClose();
+            if (onStatusChange) onStatusChange(order.id, assignCansTargetStatus);
+          }}
+        />
+      )}
     </div>
   );
 };

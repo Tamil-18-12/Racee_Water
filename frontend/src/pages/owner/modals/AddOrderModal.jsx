@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { searchCustomers, getCustomerByMobile, createCustomer } from '../../../api/customerApi';
-import { createOrderForCustomer } from '../../../api/orderApi';
+import { createOrderForCustomer, getCanStatus } from '../../../api/orderApi';
 import { getPublicSettings } from '../../../api/settingsApi';
 
 const AddOrderModal = ({ onClose, onSuccess, preselectedCustomer = null }) => {
@@ -9,6 +9,9 @@ const AddOrderModal = ({ onClose, onSuccess, preselectedCustomer = null }) => {
   const [searchResults, setSearchResults] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState(preselectedCustomer);
   const [pricePerCan, setPricePerCan] = useState(20);
+  const [canStatus, setCanStatus] = useState(null);
+  const [selectedCanNumbers, setSelectedCanNumbers] = useState([]);
+  const [manualCanInput, setManualCanInput] = useState('1');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -23,9 +26,90 @@ const AddOrderModal = ({ onClose, onSuccess, preselectedCustomer = null }) => {
     notes: '',
   });
 
+  const updateSelectedCans = (newSelection) => {
+    setSelectedCanNumbers(newSelection);
+    setManualCanInput(newSelection.join(', '));
+  };
+
   useEffect(() => {
     getPublicSettings().then(r => setPricePerCan(r.data?.data?.pricePerCan || 20)).catch(() => {});
+    getCanStatus()
+      .then(res => {
+        const data = res.data.data;
+        setCanStatus(data);
+        if (data?.availableNumbers?.length > 0) {
+          updateSelectedCans(data.availableNumbers.slice(0, 1));
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  const parseCanInputText = (text) => {
+    const nums = [];
+    const parts = text.split(/[,;\s]+/);
+    for (const part of parts) {
+      if (!part) continue;
+      if (part.includes('-')) {
+        const [startStr, endStr] = part.split('-');
+        const start = parseInt(startStr, 10);
+        const end = parseInt(endStr, 10);
+        if (!isNaN(start) && !isNaN(end) && start <= end) {
+          for (let i = start; i <= end; i++) nums.push(i);
+        }
+      } else {
+        const val = parseInt(part, 10);
+        if (!isNaN(val)) nums.push(val);
+      }
+    }
+    return Array.from(new Set(nums)).sort((a, b) => a - b);
+  };
+
+  const handleManualInputChange = (val) => {
+    setManualCanInput(val);
+    const parsed = parseCanInputText(val);
+    if (parsed.length > 0) {
+      setSelectedCanNumbers(parsed);
+      setOrderForm(f => ({ ...f, numberOfCans: parsed.length }));
+    }
+  };
+
+  const handleCansCountChange = (count) => {
+    const n = Math.max(1, parseInt(count) || 1);
+    setOrderForm(f => ({ ...f, numberOfCans: n }));
+    if (canStatus?.availableNumbers) {
+      const currentValid = selectedCanNumbers.filter(num => !canStatus.blockedMap?.[num]);
+      if (currentValid.length >= n) {
+        updateSelectedCans(currentValid.slice(0, n));
+      } else {
+        const remainingNeeded = n - currentValid.length;
+        const additional = canStatus.availableNumbers
+          .filter(num => !currentValid.includes(num))
+          .slice(0, remainingNeeded);
+        updateSelectedCans([...currentValid, ...additional]);
+      }
+    }
+  };
+
+  const toggleCanSelection = (num) => {
+    if (canStatus?.blockedMap?.[num]) return; // Blocked
+    let newSelection;
+    if (selectedCanNumbers.includes(num)) {
+      newSelection = selectedCanNumbers.filter(x => x !== num);
+    } else {
+      if (selectedCanNumbers.length >= orderForm.numberOfCans) {
+        newSelection = [...selectedCanNumbers.slice(1), num];
+      } else {
+        newSelection = [...selectedCanNumbers, num];
+      }
+    }
+    updateSelectedCans(newSelection);
+  };
+
+  const handleAutoSelect = () => {
+    if (canStatus?.availableNumbers) {
+      updateSelectedCans(canStatus.availableNumbers.slice(0, orderForm.numberOfCans));
+    }
+  };
 
   const totalAmount = orderForm.numberOfCans * pricePerCan;
   const balance = totalAmount - orderForm.amountPaid;
@@ -61,6 +145,10 @@ const AddOrderModal = ({ onClose, onSuccess, preselectedCustomer = null }) => {
 
   const handlePlaceOrder = async () => {
     if (orderForm.numberOfCans < 1) { setError('At least 1 can required'); return; }
+    if (selectedCanNumbers.length !== orderForm.numberOfCans) {
+      setError(`Please select exactly ${orderForm.numberOfCans} available can number(s) (currently selected: ${selectedCanNumbers.length})`);
+      return;
+    }
     if (orderForm.amountPaid < 0) { setError('Payment cannot be negative'); return; }
     if (orderForm.amountPaid > totalAmount) { setError(`Payment cannot exceed total ₹${totalAmount}`); return; }
     if (orderForm.emptyCansReturned > orderForm.numberOfCans) { setError('Empty cans returned cannot exceed cans ordered'); return; }
@@ -69,6 +157,7 @@ const AddOrderModal = ({ onClose, onSuccess, preselectedCustomer = null }) => {
       await createOrderForCustomer(selectedCustomer.id, {
         ...orderForm,
         numberOfCans: parseInt(orderForm.numberOfCans),
+        canNumbers: selectedCanNumbers,
         amountPaid: parseFloat(orderForm.amountPaid) || 0,
         emptyCansReturned: parseInt(orderForm.emptyCansReturned) || 0,
       });
@@ -185,12 +274,86 @@ const AddOrderModal = ({ onClose, onSuccess, preselectedCustomer = null }) => {
                   <label className="form-label">💧 Number of Cans *</label>
                   <input type="number" className="form-control" min={1} max={100}
                     value={orderForm.numberOfCans}
-                    onChange={e => setOrderForm(f => ({ ...f, numberOfCans: parseInt(e.target.value) || 1 }))} />
+                    onChange={e => handleCansCountChange(e.target.value)} />
                 </div>
                 <div className="col-6">
                   <label className="form-label">💰 Price/Can</label>
                   <input type="text" className="form-control" value={`₹${pricePerCan}`} readOnly style={{ background: '#f9f9f9' }} />
                 </div>
+              </div>
+
+              {/* Can Numbers Picker Grid & Manual Entry */}
+              <div className="mb-3 p-3" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 'var(--radius-sm)' }}>
+                <div className="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                  <label className="form-label mb-0 fw-bold" style={{ fontSize: '0.9rem' }}>
+                    🛢️ Can Numbers ({selectedCanNumbers.length}/{orderForm.numberOfCans} Selected)
+                  </label>
+                  <button type="button" className="btn-wc btn-wc-sm btn-wc-outline" onClick={handleAutoSelect} style={{ fontSize: '0.78rem', padding: '0.2rem 0.5rem' }}>
+                    ⚡ Auto-Select Available
+                  </button>
+                </div>
+
+                {/* Manual text input for typing can numbers e.g. 1, 2, 5 */}
+                <div className="mb-2">
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Manually type can numbers e.g. 1, 2, 5 or 1-5..."
+                    value={manualCanInput}
+                    onChange={(e) => handleManualInputChange(e.target.value)}
+                    style={{ fontSize: '0.88rem' }}
+                  />
+                  <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    💡 Type numbers (e.g. 1,2,5 or 1-5) or click buttons below:
+                  </div>
+                </div>
+
+                <div className="d-flex gap-3 mb-2" style={{ fontSize: '0.78rem' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#0284c7' }}></span> Selected
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#e2e8f0' }}></span> Available
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444' }}></span> Blocked (Out on Delivery)
+                  </span>
+                </div>
+
+                {canStatus ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(50px, 1fr))', gap: '6px', maxHeight: '160px', overflowY: 'auto', padding: '4px' }}>
+                    {Array.from({ length: canStatus.totalCansCount || 50 }, (_, i) => i + 1).map((num) => {
+                      const isBlocked = Boolean(canStatus.blockedMap?.[num]);
+                      const isSelected = selectedCanNumbers.includes(num);
+                      const blockInfo = canStatus.blockedMap?.[num];
+
+                      return (
+                        <button
+                          key={num}
+                          type="button"
+                          disabled={isBlocked}
+                          onClick={() => toggleCanSelection(num)}
+                          title={isBlocked ? `Can #${num} is BLOCKED (Out with ${blockInfo?.customerName})` : `Can #${num} is available`}
+                          style={{
+                            padding: '0.4rem 0.2rem',
+                            fontSize: '0.82rem',
+                            fontWeight: isSelected || isBlocked ? 700 : 500,
+                            borderRadius: '6px',
+                            border: isSelected ? '2px solid #0284c7' : isBlocked ? '1px solid #fca5a5' : '1px solid #cbd5e1',
+                            background: isSelected ? '#0284c7' : isBlocked ? '#fee2e2' : '#ffffff',
+                            color: isSelected ? '#ffffff' : isBlocked ? '#991b1b' : '#334155',
+                            cursor: isBlocked ? 'not-allowed' : 'pointer',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          {isBlocked ? `🔒#${num}` : `#${num}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Loading can stock...</div>
+                )}
               </div>
 
               <div className="mb-3 p-3" style={{ background: 'var(--bg-light)', borderRadius: 'var(--radius-sm)' }}>
@@ -251,7 +414,7 @@ const AddOrderModal = ({ onClose, onSuccess, preselectedCustomer = null }) => {
                   <label className="form-label">📋 Order Status</label>
                   <select className="form-select" value={orderForm.orderStatus}
                     onChange={e => setOrderForm(f => ({ ...f, orderStatus: e.target.value }))}>
-                    {['PENDING','CONFIRMED','OUT_FOR_DELIVERY','DELIVERED','CANCELLED'].map(s => (
+                    {['DELIVERED','CANCELLED'].map(s => (
                       <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
                     ))}
                   </select>

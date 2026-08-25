@@ -10,6 +10,7 @@ import {
   addEmptyCanReturn,
   updateStatus,
   deleteOrder,
+  getCanStatus,
 } from '../controllers/orderController.js';
 import { authenticateToken } from '../middleware/auth.js';
 
@@ -19,6 +20,7 @@ const router = express.Router();
 router.post('/public', createPublicOrder);
 
 // Protected endpoints for owner management
+router.get('/can-status', authenticateToken, getCanStatus);
 router.post('/customer/:customerId', authenticateToken, createOrderForCustomer);
 router.get('/today', authenticateToken, getTodayOrders);
 router.get('/customer/:customerId', authenticateToken, getOrdersByCustomer);

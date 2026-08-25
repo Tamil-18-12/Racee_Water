@@ -25,6 +25,11 @@ const settingsSchema = new mongoose.Schema(
       default: 'Laligam bus stop, laligam, Dharmapuri 636804',
       trim: true,
     },
+    totalCansCount: {
+      type: Number,
+      default: 50,
+      min: 1,
+    },
   },
   {
     timestamps: true,

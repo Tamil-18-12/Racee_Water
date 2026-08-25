@@ -63,6 +63,14 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    canNumbers: {
+      type: [Number],
+      default: [],
+    },
+    returnedCanNumbers: {
+      type: [Number],
+      default: [],
+    },
     orderSource: {
       type: String,
       enum: ['ONLINE', 'OFFLINE'],
